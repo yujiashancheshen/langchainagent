@@ -1,0 +1,14 @@
+# LangChain 相关依赖
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-core>=0.1.0
+
+# Excel 处理相关依赖
+pandas>=1.5.0
+openpyxl>=3.0.0
+
+# 网页爬取相关依赖
+playwright>=1.40.0
+
+# 环境变量管理
+python-dotenv>=1.0.0
