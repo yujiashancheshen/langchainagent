@@ -12,7 +12,7 @@ def _read_excel_impl(filename: str) -> str:
     Args:
         filename (str): Excel文件的路径（支持 .xlsx 和 .xls 格式）
             - 如果是绝对路径，则从指定路径读取
-            - 如果是相对路径，则从桌面路径 /Users/wangzhuo/Desktop 读取
+            - 如果是相对路径，则从桌面路径 ~/Desktop 读取
 
     Returns:
         str: JSON格式的字符串，包含读取的数据数组。
@@ -22,19 +22,22 @@ def _read_excel_impl(filename: str) -> str:
         read_excel("data.xlsx") -> '[{"列1": "值1", "列2": "值2"}, ...]'
     """
     try:
+        print(f"[tool] 输入 文件: {filename}")
         # 处理文件路径：如果是相对路径，从桌面读取
         if not os.path.isabs(filename):
-            desktop_path = "/Users/wangzhuo/Desktop"
+            desktop_path = "~/Desktop"
             filename = os.path.join(desktop_path, filename)
 
         # 检查文件是否存在
         if not os.path.exists(filename):
+            print(f"[tool] 错误 文件不存在: {filename}")
             return json.dumps({
                 "error": f"文件不存在: {filename}",
                 "data": []
             }, ensure_ascii=False)
 
         # 读取Excel文件
+        print("[tool] 步骤 读取Excel文件")
         df = pd.read_excel(filename)
 
         # 将DataFrame转换为字典列表
@@ -55,9 +58,14 @@ def _read_excel_impl(filename: str) -> str:
             "data": data
         }
 
+        print(
+            f"[tool] 输出 成功读取: {len(data)} 行, "
+            f"{len(df.columns)} 列"
+        )
         return json.dumps(result, ensure_ascii=False, default=str)
 
     except Exception as e:
+        print(f"[tool] 错误 {e}")
         error_result = {
             "error": str(e),
             "success": False,
@@ -75,7 +83,7 @@ def read_excel(filename: str) -> str:
     Args:
         filename (str): Excel文件的路径（支持 .xlsx 和 .xls 格式）
             - 如果是绝对路径，则从指定路径读取
-            - 如果是相对路径，则从桌面路径 /Users/wangzhuo/Desktop 读取
+            - 如果是相对路径，则从桌面路径 ~/Desktop 读取
 
     Returns:
         str: JSON格式的字符串，包含读取的数据数组。
@@ -97,7 +105,7 @@ def _write_excel_impl(
     Args:
         filename (str): 要写入的Excel文件路径（会自动创建 .xlsx 格式）
             - 如果是绝对路径，则写入到指定路径
-            - 如果是相对路径，则写入到桌面路径 /Users/wangzhuo/Desktop
+            - 如果是相对路径，则写入到桌面路径 ~/Desktop
         data (str | List[Dict]): 要写入的数据。
             可以是JSON字符串或字典列表。
             如果是JSON字符串，会自动解析为字典列表。
@@ -110,11 +118,18 @@ def _write_excel_impl(
         write_excel("/tmp/output.xlsx", [{"列1": "值1", "列2": "值2"}])
     """
     try:
+        print(f"[tool] 输入 文件: {filename}")
+        data_count = (
+            len(data) if isinstance(data, list) else 'N/A'
+        )
+        print(f"[tool] 输入 数据行数: {data_count}")
         # 解析数据
         if isinstance(data, str):
             try:
                 data = json.loads(data)
+                print(f"[tool] 步骤 解析JSON数据: {len(data)} 行")
             except json.JSONDecodeError:
+                print("[tool] 错误 无法解析JSON字符串")
                 return json.dumps({
                     "error": "数据格式错误：无法解析JSON字符串",
                     "success": False,
@@ -148,7 +163,7 @@ def _write_excel_impl(
 
         # 处理文件路径：如果是相对路径，写入到桌面
         if not os.path.isabs(filename):
-            desktop_path = "/Users/wangzhuo/Desktop"
+            desktop_path = "~/Desktop"
             filename = os.path.join(desktop_path, filename)
 
         # 确保文件扩展名是 .xlsx
@@ -164,6 +179,7 @@ def _write_excel_impl(
             os.makedirs(dir_path)
 
         # 写入Excel文件
+        print("[tool] 步骤 写入Excel文件")
         df.to_excel(filename, index=False, engine='openpyxl')
 
         result = {
@@ -175,9 +191,14 @@ def _write_excel_impl(
             "message": f"成功写入 {len(data)} 行数据到 {filename}"
         }
 
+        print(
+            f"[tool] 输出 成功写入: {len(data)} 行, "
+            f"{len(df.columns)} 列到 {filename}"
+        )
         return json.dumps(result, ensure_ascii=False, default=str)
 
     except Exception as e:
+        print(f"[tool] 错误 {e}")
         error_result = {
             "error": str(e),
             "success": False,
@@ -197,7 +218,7 @@ def write_excel(
     Args:
         filename (str): 要写入的Excel文件路径（会自动创建 .xlsx 格式）
             - 如果是绝对路径，则写入到指定路径
-            - 如果是相对路径，则写入到桌面路径 /Users/wangzhuo/Desktop
+            - 如果是相对路径，则写入到桌面路径 ~/Desktop
         data (str | List[Dict]): 要写入的数据。
             可以是JSON字符串或字典列表。
             如果是JSON字符串，会自动解析为字典列表。

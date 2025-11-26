@@ -51,11 +51,11 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
         """)
 
         try:
-            print(f"正在访问: {url}")
+            print(f"[tool] 输入 查询: {query}")
+            print(f"[tool] 输入 URL: {url}")
             await page.goto(url, wait_until="networkidle", timeout=5000)
 
             # 等待表格数据出现 - 使用新的类选择器
-            print("等待表格数据加载...")
             rows_found = False
             # 使用新的表格内容类选择器
             table_body_selector = (
@@ -68,10 +68,7 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 rows = await page.query_selector_all(table_body_selector)
                 if len(rows) > 0:
                     rows_found = True
-                    msg = (
-                        f"表格数据区域加载完成，找到 {len(rows)} 行..."
-                    )
-                    print(msg)
+                    print(f"[tool] 步骤 找到 {len(rows)} 行数据")
                     break
 
             if not rows_found:
@@ -80,14 +77,10 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 rows = await page.query_selector_all(table_body_selector)
                 if len(rows) > 0:
                     rows_found = True
-                    msg = (
-                        f"表格数据区域加载完成，找到 {len(rows)} 行..."
-                    )
-                    print(msg)
+                    print(f"[tool] 步骤 找到 {len(rows)} 行数据")
 
             # --- 先提取表头 ---
             if headers is None:
-                print("正在提取表头...")
                 # 策略：先找 class="iwc-table-header" 的列，
                 # 再找 class="iwc-table-header table-right-thead
                 # scroll-style2" 的列
@@ -217,13 +210,10 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                                         headers.append('')
 
                 if headers:
-                    msg = (
-                        f"从表头提取到 {len(headers)} 列: {headers}"
-                    )
-                    print(msg)
+                    print(f"[tool] 步骤 提取表头: {len(headers)} 列")
                 else:
                     # 如果表头提取失败，从第一行数据获取列数，使用通用列名
-                    print("警告：未能从表头提取列名，使用通用列名...")
+                    print("[tool] 步骤 使用通用列名")
                     table_body_selector = (
                         '.iwc-table-body.scroll-style2.big-mark tr, '
                         '[class*="iwc-table-body"] tr'
@@ -241,12 +231,9 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                                 f"列{i+1}"
                                 for i in range(len(first_cells))
                             ]
-                            print(
-                                f"使用通用列名，共 {len(headers)} 列: "
-                                f"{headers}"
-                            )
+                            print(f"[tool] 步骤 通用列名: {len(headers)} 列")
                     else:
-                        print("错误：无法获取表头或数据行，退出...")
+                        print("[tool] 错误 无法获取表头或数据行")
                         return json.dumps(
                             all_data, ensure_ascii=False, indent=2
                         )
@@ -269,10 +256,7 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                         if first_cell:
                             first_text = await first_cell.inner_text()
                             if first_text.strip():
-                                print("当前页数据加载稳定...")
                                 break
-                else:
-                    print("警告：数据可能未完全加载，继续尝试...")
 
                 # --- 提取当前页所有数据行 ---
                 # 使用新的表格内容类选择器
@@ -281,10 +265,9 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                     '[class*="iwc-table-body"] tr'
                 )
                 rows = await page.query_selector_all(table_body_selector)
-                print(f"当前页找到 {len(rows)} 行数据...")
 
                 if not rows:
-                    print("警告：未找到任何数据行，退出循环。")
+                    print("[tool] 步骤 未找到数据行，退出")
                     break
 
                 # --- 提取当前页数据行 ---
@@ -321,15 +304,14 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 added_before = len(all_data)
                 all_data.extend(current_page_data[:rows_to_add])
                 added_count = len(all_data) - added_before
-                msg = (
-                    f"从当前页添加了 {added_count} 行数据，"
-                    f"已累计 {len(all_data)} 行..."
+                print(
+                    f"[tool] 步骤 添加 {added_count} 行，"
+                    f"累计 {len(all_data)} 行"
                 )
-                print(msg)
 
                 # --- 检查并处理分页 ---
                 if len(all_data) >= max_rows:
-                    print("已达到最大行数限制，停止翻页。")
+                    print("[tool] 步骤 达到最大行数，停止翻页")
                     break
 
                 # --- 查找并点击下一页 ---
@@ -348,7 +330,7 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                     is_enabled = await next_button.is_enabled()
 
                     if is_visible and is_enabled:
-                        print("点击下一页...")
+                        print("[tool] 步骤 翻页")
 
                         # 记录翻页前的状态
                         old_row_count = len(rows)
@@ -401,24 +383,19 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
 
                             # 再短暂等待一下，确保完全加载
                             await page.wait_for_timeout(500)
-                            print("新页面数据加载完成。")
 
                         except asyncio.TimeoutError:
-                            msg = (
-                                "警告：等待新页面数据加载超时，"
-                                "可能已到最后一页或加载异常。"
-                            )
-                            print(msg)
+                            print("[tool] 步骤 翻页超时，可能已到最后一页")
                             break  # 超时则退出循环
                     else:
-                        print("下一页按钮不可见或已禁用，停止翻页。")
+                        print("[tool] 步骤 已到最后一页")
                     break
                 else:
-                    print("没有找到'下一页'按钮，可能已到最后一页。")
+                    print("[tool] 步骤 已到最后一页")
                     break
 
         except Exception as e:
-            print(f"发生未预期的错误: {e}")
+            print(f"[tool] 错误 {e}")
             import traceback
             traceback.print_exc()
         finally:
@@ -426,7 +403,9 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
             await browser.close()
 
     # 返回JSON格式的字符串
-    return json.dumps(all_data, ensure_ascii=False, indent=2)
+    result = json.dumps(all_data, ensure_ascii=False, indent=2)
+    print(f"[tool] 输出 返回 {len(all_data)} 行数据")
+    return result
 
 
 # --- LangChain 工具封装 ---
@@ -438,7 +417,7 @@ def get_iwencai_stock_data(query: str) -> str:
 
     Args:
         query (str): 自然语言查询，例如 "成交额前100的股票" 或
-            "同花顺热度前100的股票"。
+            "热度前100的股票"。
 
     Returns:
         str: 包含查询结果的JSON字符串。
