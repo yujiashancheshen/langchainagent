@@ -3,6 +3,7 @@ import os
 from typing import List, Dict, Any, Union
 from langchain.tools import tool  # type: ignore
 import pandas as pd  # type: ignore
+from logger_util import log_tool_call, log_error  # noqa: E402
 
 
 def _read_excel_impl(filename: str) -> str:
@@ -12,7 +13,7 @@ def _read_excel_impl(filename: str) -> str:
     Args:
         filename (str): Excel文件的路径（支持 .xlsx 和 .xls 格式）
             - 如果是绝对路径，则从指定路径读取
-            - 如果是相对路径，则从桌面路径 ~/Desktop 读取
+            - 如果是相对路径，则当前路径 ./ 读取
 
     Returns:
         str: JSON格式的字符串，包含读取的数据数组。
@@ -22,22 +23,25 @@ def _read_excel_impl(filename: str) -> str:
         read_excel("data.xlsx") -> '[{"列1": "值1", "列2": "值2"}, ...]'
     """
     try:
-        print(f"[tool] 输入 文件: {filename}")
+        # 精简打印：只显示输入
+        print(f"[tool] 输入: {filename}")
+
         # 处理文件路径：如果是相对路径，从桌面读取
         if not os.path.isabs(filename):
-            desktop_path = "~/Desktop"
+            desktop_path = os.path.expanduser("./")
             filename = os.path.join(desktop_path, filename)
 
         # 检查文件是否存在
         if not os.path.exists(filename):
-            print(f"[tool] 错误 文件不存在: {filename}")
+            error_msg = f"文件不存在: {filename}"
+            print(f"[tool] 错误: {error_msg}")
+            log_error(error_msg, "read_excel")
             return json.dumps({
-                "error": f"文件不存在: {filename}",
+                "error": error_msg,
                 "data": []
             }, ensure_ascii=False)
 
         # 读取Excel文件
-        print("[tool] 步骤 读取Excel文件")
         df = pd.read_excel(filename)
 
         # 将DataFrame转换为字典列表
@@ -58,14 +62,24 @@ def _read_excel_impl(filename: str) -> str:
             "data": data
         }
 
-        print(
-            f"[tool] 输出 成功读取: {len(data)} 行, "
-            f"{len(df.columns)} 列"
+        result_json = json.dumps(result, ensure_ascii=False, default=str)
+
+        # 精简打印：只显示输出摘要
+        print(f"[tool] 输出: {len(data)} 行, {len(df.columns)} 列")
+
+        # 将详细输入输出写入日志
+        log_tool_call(
+            tool_name="read_excel",
+            input_data=filename,
+            output=result_json
         )
-        return json.dumps(result, ensure_ascii=False, default=str)
+
+        return result_json
 
     except Exception as e:
-        print(f"[tool] 错误 {e}")
+        error_msg = str(e)
+        print(f"[tool] 错误: {error_msg}")
+        log_error(error_msg, "read_excel")
         error_result = {
             "error": str(e),
             "success": False,
@@ -118,42 +132,55 @@ def _write_excel_impl(
         write_excel("/tmp/output.xlsx", [{"列1": "值1", "列2": "值2"}])
     """
     try:
-        print(f"[tool] 输入 文件: {filename}")
-        data_count = (
-            len(data) if isinstance(data, list) else 'N/A'
-        )
-        print(f"[tool] 输入 数据行数: {data_count}")
+        # 精简打印：只显示输入
+        input_info = {
+            "filename": filename,
+            "data_type": "list" if isinstance(data, list) else "str",
+            "data_count": len(data) if isinstance(data, list) else 'N/A'
+        }
+        print(f"[tool] 输入: {filename}, 数据: {input_info['data_count']} 行")
+
         # 解析数据
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-                print(f"[tool] 步骤 解析JSON数据: {len(data)} 行")
             except json.JSONDecodeError:
-                print("[tool] 错误 无法解析JSON字符串")
+                error_msg = "数据格式错误：无法解析JSON字符串"
+                print(f"[tool] 错误: {error_msg}")
+                log_error(error_msg, "write_excel")
                 return json.dumps({
-                    "error": "数据格式错误：无法解析JSON字符串",
+                    "error": error_msg,
                     "success": False,
                     "filename": filename
                 }, ensure_ascii=False)
 
         if not isinstance(data, list):
+            error_msg = "数据格式错误：数据必须是列表或JSON字符串"
+            print(f"[tool] 错误: {error_msg}")
+            log_error(error_msg, "write_excel")
             return json.dumps({
-                "error": "数据格式错误：数据必须是列表或JSON字符串",
+                "error": error_msg,
                 "success": False,
                 "filename": filename
             }, ensure_ascii=False)
 
         if len(data) == 0:
+            error_msg = "数据为空：无法写入空数据"
+            print(f"[tool] 错误: {error_msg}")
+            log_error(error_msg, "write_excel")
             return json.dumps({
-                "error": "数据为空：无法写入空数据",
+                "error": error_msg,
                 "success": False,
                 "filename": filename
             }, ensure_ascii=False)
 
         # 确保所有元素都是字典
         if not all(isinstance(item, dict) for item in data):
+            error_msg = "数据格式错误：列表中的每个元素必须是字典"
+            print(f"[tool] 错误: {error_msg}")
+            log_error(error_msg, "write_excel")
             return json.dumps({
-                "error": "数据格式错误：列表中的每个元素必须是字典",
+                "error": error_msg,
                 "success": False,
                 "filename": filename
             }, ensure_ascii=False)
@@ -163,7 +190,7 @@ def _write_excel_impl(
 
         # 处理文件路径：如果是相对路径，写入到桌面
         if not os.path.isabs(filename):
-            desktop_path = "~/Desktop"
+            desktop_path = os.path.expanduser("~/Desktop")
             filename = os.path.join(desktop_path, filename)
 
         # 确保文件扩展名是 .xlsx
@@ -179,7 +206,6 @@ def _write_excel_impl(
             os.makedirs(dir_path)
 
         # 写入Excel文件
-        print("[tool] 步骤 写入Excel文件")
         df.to_excel(filename, index=False, engine='openpyxl')
 
         result = {
@@ -191,14 +217,24 @@ def _write_excel_impl(
             "message": f"成功写入 {len(data)} 行数据到 {filename}"
         }
 
-        print(
-            f"[tool] 输出 成功写入: {len(data)} 行, "
-            f"{len(df.columns)} 列到 {filename}"
+        result_json = json.dumps(result, ensure_ascii=False, default=str)
+
+        # 精简打印：只显示输出摘要
+        print(f"[tool] 输出: {len(data)} 行, {len(df.columns)} 列")
+
+        # 将详细输入输出写入日志
+        log_tool_call(
+            tool_name="write_excel",
+            input_data=input_info,
+            output=result_json
         )
-        return json.dumps(result, ensure_ascii=False, default=str)
+
+        return result_json
 
     except Exception as e:
-        print(f"[tool] 错误 {e}")
+        error_msg = str(e)
+        print(f"[tool] 错误: {error_msg}")
+        log_error(error_msg, "write_excel")
         error_result = {
             "error": str(e),
             "success": False,

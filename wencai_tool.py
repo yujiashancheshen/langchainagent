@@ -3,6 +3,7 @@ from playwright.async_api import async_playwright  # type: ignore
 import json
 import time
 from langchain.tools import tool  # type: ignore
+from logger_util import log_tool_call, log_error  # noqa: E402
 
 
 async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
@@ -51,8 +52,8 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
         """)
 
         try:
-            print(f"[tool] 输入 查询: {query}")
-            print(f"[tool] 输入 URL: {url}")
+            # 精简打印：只显示输入
+            print(f"[tool] 输入: {query}")
             await page.goto(url, wait_until="networkidle", timeout=5000)
 
             # 等待表格数据出现 - 使用新的类选择器
@@ -68,7 +69,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 rows = await page.query_selector_all(table_body_selector)
                 if len(rows) > 0:
                     rows_found = True
-                    print(f"[tool] 步骤 找到 {len(rows)} 行数据")
                     break
 
             if not rows_found:
@@ -77,7 +77,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 rows = await page.query_selector_all(table_body_selector)
                 if len(rows) > 0:
                     rows_found = True
-                    print(f"[tool] 步骤 找到 {len(rows)} 行数据")
 
             # --- 先提取表头 ---
             if headers is None:
@@ -209,11 +208,8 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                                     else:
                                         headers.append('')
 
-                if headers:
-                    print(f"[tool] 步骤 提取表头: {len(headers)} 列")
-                else:
+                if not headers:
                     # 如果表头提取失败，从第一行数据获取列数，使用通用列名
-                    print("[tool] 步骤 使用通用列名")
                     table_body_selector = (
                         '.iwc-table-body.scroll-style2.big-mark tr, '
                         '[class*="iwc-table-body"] tr'
@@ -231,9 +227,10 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                                 f"列{i+1}"
                                 for i in range(len(first_cells))
                             ]
-                            print(f"[tool] 步骤 通用列名: {len(headers)} 列")
                     else:
-                        print("[tool] 错误 无法获取表头或数据行")
+                        error_msg = "无法获取表头或数据行"
+                        print(f"[tool] 错误: {error_msg}")
+                        log_error(error_msg, "get_iwencai_stock_data")
                         return json.dumps(
                             all_data, ensure_ascii=False, indent=2
                         )
@@ -267,7 +264,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 rows = await page.query_selector_all(table_body_selector)
 
                 if not rows:
-                    print("[tool] 步骤 未找到数据行，退出")
                     break
 
                 # --- 提取当前页数据行 ---
@@ -301,17 +297,10 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                 # 添加当前页数据到总数据中
                 rows_needed = max_rows - len(all_data)
                 rows_to_add = min(rows_needed, len(current_page_data))
-                added_before = len(all_data)
                 all_data.extend(current_page_data[:rows_to_add])
-                added_count = len(all_data) - added_before
-                print(
-                    f"[tool] 步骤 添加 {added_count} 行，"
-                    f"累计 {len(all_data)} 行"
-                )
 
                 # --- 检查并处理分页 ---
                 if len(all_data) >= max_rows:
-                    print("[tool] 步骤 达到最大行数，停止翻页")
                     break
 
                 # --- 查找并点击下一页 ---
@@ -330,7 +319,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                     is_enabled = await next_button.is_enabled()
 
                     if is_visible and is_enabled:
-                        print("[tool] 步骤 翻页")
 
                         # 记录翻页前的状态
                         old_row_count = len(rows)
@@ -385,17 +373,16 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                             await page.wait_for_timeout(500)
 
                         except asyncio.TimeoutError:
-                            print("[tool] 步骤 翻页超时，可能已到最后一页")
                             break  # 超时则退出循环
                     else:
-                        print("[tool] 步骤 已到最后一页")
-                    break
+                        break
                 else:
-                    print("[tool] 步骤 已到最后一页")
                     break
 
         except Exception as e:
-            print(f"[tool] 错误 {e}")
+            error_msg = str(e)
+            print(f"[tool] 错误: {error_msg}")
+            log_error(error_msg, "get_iwencai_stock_data")
             import traceback
             traceback.print_exc()
         finally:
@@ -404,7 +391,17 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
 
     # 返回JSON格式的字符串
     result = json.dumps(all_data, ensure_ascii=False, indent=2)
-    print(f"[tool] 输出 返回 {len(all_data)} 行数据")
+
+    # 精简打印：只显示输出摘要
+    print(f"[tool] 输出: {len(all_data)} 行数据")
+
+    # 将详细输入输出写入日志
+    log_tool_call(
+        tool_name="get_iwencai_stock_data",
+        input_data={"query": query, "max_rows": max_rows},
+        output=result
+    )
+
     return result
 
 
