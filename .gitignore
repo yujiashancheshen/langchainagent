@@ -15,3 +15,4 @@ dist/
 build/
 *.xlsx
 agent_logs/
+*.txt

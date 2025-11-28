@@ -52,8 +52,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
         """)
 
         try:
-            # 精简打印：只显示输入
-            print(f"[tool] 输入: {query}")
             await page.goto(url, wait_until="networkidle", timeout=5000)
 
             # 等待表格数据出现 - 使用新的类选择器
@@ -229,7 +227,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
                             ]
                     else:
                         error_msg = "无法获取表头或数据行"
-                        print(f"[tool] 错误: {error_msg}")
                         log_error(error_msg, "get_iwencai_stock_data")
                         return json.dumps(
                             all_data, ensure_ascii=False, indent=2
@@ -381,7 +378,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
 
         except Exception as e:
             error_msg = str(e)
-            print(f"[tool] 错误: {error_msg}")
             log_error(error_msg, "get_iwencai_stock_data")
             import traceback
             traceback.print_exc()
@@ -391,9 +387,6 @@ async def fetch_iwencai_data(query: str, max_rows: int = 100) -> str:
 
     # 返回JSON格式的字符串
     result = json.dumps(all_data, ensure_ascii=False, indent=2)
-
-    # 精简打印：只显示输出摘要
-    print(f"[tool] 输出: {len(all_data)} 行数据")
 
     # 将详细输入输出写入日志
     log_tool_call(

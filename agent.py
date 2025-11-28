@@ -6,7 +6,6 @@
 import os
 import sys
 import time
-import threading
 import warnings
 from typing import Dict, Any
 from dotenv import load_dotenv  # type: ignore
@@ -90,33 +89,6 @@ class LLMLoggingCallback(
             'output': None,
             'token_usage': None
         }
-        # 打印入参
-        print(f"\n[agent] LLM调用 #{self.call_index} - 入参:")
-        for i, prompt in enumerate(self.current_call['input']):
-            if isinstance(prompt, str):
-                prompt_str = prompt
-            elif hasattr(prompt, 'content'):
-                prompt_str = prompt.content
-            elif isinstance(prompt, list):
-                # 处理消息列表
-                prompt_str = "\n".join([
-                    f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
-                    if isinstance(msg, dict)
-                    else str(msg)
-                    for msg in prompt
-                ])
-            else:
-                prompt_str = str(prompt)
-            # 限制显示长度，避免输出过长
-            if len(prompt_str) > 1000:
-                truncated = prompt_str[:1000]
-                total_len = len(prompt_str)
-                print(
-                    f"[agent]   提示 {i+1}: {truncated}... "
-                    f"(已截断，总长度: {total_len})"
-                )
-            else:
-                print(f"[agent]   提示 {i+1}: {prompt_str}")
 
     def on_llm_end(self, response, **kwargs):
         """LLM调用结束时记录出参"""
@@ -154,30 +126,33 @@ class LLMLoggingCallback(
                         'total_tokens': token_usage.get('total_tokens', 0)
                     })
 
-            # 打印出参
-            output_str = self.current_call['output']
-            call_idx = self.current_call['call_index']
-            if len(output_str) > 1000:
-                truncated = output_str[:1000]
-                total_len = len(output_str)
-                print(
-                    f"[agent] LLM调用 #{call_idx} - 出参: "
-                    f"{truncated}... (已截断，总长度: {total_len})"
-                )
-            else:
-                print(
-                    f"[agent] LLM调用 #{call_idx} - 出参: {output_str}"
-                )
+            # 准备输入消息用于日志
+            input_messages = []
+            for prompt in self.current_call['input']:
+                if isinstance(prompt, str):
+                    prompt_str = prompt
+                elif hasattr(prompt, 'content'):
+                    prompt_str = prompt.content
+                elif isinstance(prompt, list):
+                    # 处理消息列表
+                    prompt_str = "\n".join([
+                        (f"{msg.get('role', 'unknown')}: "
+                         f"{msg.get('content', '')}")
+                        if isinstance(msg, dict)
+                        else str(msg)
+                        for msg in prompt
+                    ])
+                else:
+                    prompt_str = str(prompt)
+                input_messages.append(prompt_str)
 
-            if self.current_call['token_usage']:
-                usage = self.current_call['token_usage']
-                total = usage.get('total_tokens', 0)
-                prompt = usage.get('prompt_tokens', 0)
-                completion = usage.get('completion_tokens', 0)
-                print(
-                    f"[agent] LLM调用 #{call_idx} - Token使用: "
-                    f"总计={total}, 输入={prompt}, 输出={completion}"
-                )
+            # 将详细输入输出写入日志
+            log_llm_call(
+                call_index=self.current_call['call_index'],
+                input_messages=input_messages,
+                output=self.current_call['output'],
+                token_usage=self.current_call.get('token_usage')
+            )
 
             # 保存到日志
             _llm_call_logs.append(self.current_call.copy())
@@ -187,10 +162,9 @@ class LLMLoggingCallback(
         """LLM调用出错时记录"""
         if self.current_call:
             self.current_call['error'] = str(error)
+            from logger_util import log_error
             call_idx = self.current_call['call_index']
-            print(
-                f"[agent] LLM调用 #{call_idx} - 错误: {error}"
-            )
+            log_error(f"LLM调用 #{call_idx} 错误: {error}", "LLM")
             _llm_call_logs.append(self.current_call.copy())
             self.current_call = None
 
@@ -294,7 +268,8 @@ def create_agent(
     ]
 
     # 创建 Agent (使用 LangGraph)
-    agent_executor = create_react_agent(llm, tools)
+    # 打开debug参数以显示agent的执行过程
+    agent_executor = create_react_agent(llm, tools, debug=False)
 
     return agent_executor
 
@@ -306,12 +281,7 @@ def run_agent_interactive(agent_executor):
     Args:
         agent_executor: Agent 执行器
     """
-    print("[agent] " + "=" * 60)
-    print("[agent] Agent 已启动！")
-    print("[agent] 你可以询问关于股票数据的问题，Agent 会帮你获取并处理数据。")
-    print("[agent] 输入 '退出' 或 'exit' 来结束对话。")
-    print("[agent] " + "=" * 60)
-    print()
+    print("[agent] Agent已启动，输入'退出'或'exit'结束对话")
 
     while True:
         try:
@@ -326,21 +296,18 @@ def run_agent_interactive(agent_executor):
                 print("[agent] 再见！")
                 break
 
-            print("\n[agent] 处理中 正在执行...\n")
             output = _run_langgraph_agent(
                 agent_executor, user_input, verbose=True)
 
-            print(f"\n[agent] 结果 {output}\n")
-            print("[agent] " + "-" * 60)
-            print()
+            print(f"[agent] 结果: {output}")
 
         except KeyboardInterrupt:
-            print("\n\n[agent] 再见！")
+            print("\n[agent] 再见！")
             break
         except Exception as e:
-            print(f"\n[agent] 错误 {e}\n")
-            print("[agent] " + "-" * 60)
-            print()
+            from logger_util import log_error
+            log_error(f"交互模式错误: {e}", "Agent")
+            print(f"[agent] 错误: {e}")
 
 
 def run_agent_single(
@@ -372,60 +339,20 @@ def _run_langgraph_agent(
     """运行langgraph agent的核心逻辑"""
     final_messages = None
     start_time = time.time()
-    last_activity_time = time.time()
-    step_count = 0
-    last_tool_name = None
-    # 使用字典共享状态，以便在进度指示器中使用
-    status_info = {"tool": None, "step": 0}
-
-    # 进度指示器
-    progress_stop = threading.Event()
-
-    def show_progress():
-        """当长时间没有输出时显示进度指示"""
-        dots = 0
-        while not progress_stop.is_set():
-            time.sleep(2)
-            if time.time() - last_activity_time > 5:
-                dots = (dots + 1) % 4
-                # 根据当前状态显示更具体的信息
-                if status_info["tool"]:
-                    status_msg = f"[tool] 工具执行中: {status_info['tool']}"
-                elif status_info["step"] > 0:
-                    status_msg = "[agent] LLM处理中"
-                else:
-                    status_msg = "[agent] 正在执行"
-                msg = (f"\r等待中{'.' * dots}{' ' * (3-dots)} "
-                       f"{status_msg}，请稍候...")
-                sys.stdout.write(msg)
-                sys.stdout.flush()
-
-    if verbose:
-        print("[agent] " + "=" * 60)
-        print("[agent] 执行过程:")
-        print("[agent] " + "=" * 60)
-        progress_thread = threading.Thread(
-            target=show_progress, daemon=True)
-        progress_thread.start()
+    llm_call_count = 0
+    tool_call_count = 0
+    tool_calls = []  # 记录工具调用信息
 
     try:
         stream_input = {"messages": [("user", query)]}
         for chunk in agent_executor.stream(stream_input):
-            last_activity_time = time.time()
-            if verbose:
-                sys.stdout.write("\r" + " " * 60 + "\r")
-                sys.stdout.flush()
-
             for node_name, node_output in chunk.items():
                 if node_name == "agent":
-                    step_count += 1
-                    status_info["step"] = step_count
-                    status_info["tool"] = None  # 清除工具状态
                     if isinstance(node_output, dict):
                         if "messages" in node_output:
                             messages = node_output["messages"]
                             final_messages = messages
-                            if messages and verbose:
+                            if messages:
                                 last_msg = messages[-1]
                                 if hasattr(last_msg, 'content'):
                                     content = last_msg.content
@@ -434,9 +361,13 @@ def _run_langgraph_agent(
                                         usage = _extract_token_usage(last_msg)
                                         if usage['total_tokens'] > 0:
                                             _update_token_stats(usage)
-
-                                            # 精简打印：只显示核心步骤
-                                            print("[agent] 调用大模型")
+                                            llm_call_count += 1
+                                            if verbose:
+                                                msg = (
+                                                    f"[agent] LLM调用 "
+                                                    f"#{llm_call_count}"
+                                                )
+                                                print(msg)
 
                                             # 准备输入消息用于日志
                                             input_messages = []
@@ -462,15 +393,10 @@ def _run_langgraph_agent(
 
                                             # 将详细输入输出写入日志
                                             log_llm_call(
-                                                call_index=step_count,
+                                                call_index=llm_call_count,
                                                 input_messages=input_messages,
                                                 output=str(content),
                                                 token_usage=usage
-                                            )
-                                        else:
-                                            print(
-                                                f"\n[agent] 步骤{step_count} "
-                                                "Agent思考"
                                             )
                 elif node_name == "tools":
                     if isinstance(node_output, dict):
@@ -483,13 +409,26 @@ def _run_langgraph_agent(
                             for msg in messages:
                                 if hasattr(msg, 'name') and msg.name:
                                     tool_name = msg.name
-                                    if tool_name != last_tool_name:
-                                        status_info["tool"] = tool_name
-                                        if verbose:
-                                            print(
-                                                f"[agent] 调用工具: {tool_name}"
-                                            )
-                                        last_tool_name = tool_name
+                                    tool_names = [
+                                        t['name'] for t in tool_calls
+                                    ]
+                                    if tool_name not in tool_names:
+                                        tool_calls.append({
+                                            'name': tool_name,
+                                            'count': 0
+                                        })
+                                    # 更新工具调用计数
+                                    for t in tool_calls:
+                                        if t['name'] == tool_name:
+                                            t['count'] += 1
+                                            break
+                                    tool_call_count += 1
+                                    if verbose:
+                                        msg_text = (
+                                            f"[agent] 工具调用 "
+                                            f"#{tool_call_count}: {tool_name}"
+                                        )
+                                        print(msg_text)
 
                                 # 收集工具输入输出
                                 if hasattr(msg, 'content'):
@@ -515,22 +454,28 @@ def _run_langgraph_agent(
                                 )
 
         if verbose:
-            progress_stop.set()
             total_time = time.time() - start_time
             stats = get_token_stats()
-            print(f"[agent] 完成 (耗时: {total_time:.1f}秒)")
+            # 汇总信息：一行显示
+            tool_summary_parts = [
+                f"{t['name']}({t['count']})" for t in tool_calls
+            ]
+            tool_summary = ", ".join(tool_summary_parts)
+            summary = (
+                f"[agent] 完成 | 耗时: {total_time:.1f}s | "
+                f"LLM: {llm_call_count}次 | 工具: {tool_call_count}次"
+            )
+            if tool_summary:
+                summary += f" ({tool_summary})"
             if stats['call_count'] > 0:
-                call_count = stats['call_count']
-                total_tokens = stats['total_tokens']
-                print(
-                    f"[agent] 统计: LLM调用 {call_count} 次, "
-                    f"Token消耗 {total_tokens}"
-                )
+                summary += f" | Tokens: {stats['total_tokens']}"
+            print(summary)
 
     except Exception as stream_error:
         if verbose:
-            progress_stop.set()
-            print(f"\n[agent] 错误 {stream_error}")
+            from logger_util import log_error
+            log_error(f"Agent执行错误: {stream_error}", "Agent")
+            print(f"[agent] 错误: {stream_error}")
         # 尝试使用 invoke 作为后备方案
         try:
             invoke_input = {"messages": [("user", query)]}
@@ -565,9 +510,9 @@ if __name__ == "__main__":
     # 如果提供了命令行参数，则执行单次查询
     if len(sys.argv) > 1:
         query = " ".join(sys.argv[1:])
-        print(f"[agent] 查询: {query}\n")
+        print(f"[agent] 查询: {query}")
         result = run_agent_single(agent, query)
-        print(f"\n[agent] 结果:\n{result}")
+        print(f"[agent] 结果: {result}")
     else:
         # 否则进入交互模式
         run_agent_interactive(agent)
