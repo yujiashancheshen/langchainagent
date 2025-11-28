@@ -58,6 +58,7 @@ except ImportError:
 # 导入工具（必须在警告过滤器之后，以避免警告显示）
 from excel_tools import read_excel, write_excel  # noqa: E402
 from wencai_tool import get_iwencai_stock_data  # noqa: E402
+from analyze_tool import merge_json_data
 
 # Token统计
 _token_stats = {
@@ -265,6 +266,7 @@ def create_agent(
         get_iwencai_stock_data,
         read_excel,
         write_excel,
+        merge_json_data,
     ]
 
     # 创建 Agent (使用 LangGraph)
